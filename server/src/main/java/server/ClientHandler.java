@@ -6,6 +6,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.Socket;
+import java.net.SocketException;
 
 public class ClientHandler {
     private Server server;
@@ -13,6 +14,9 @@ public class ClientHandler {
     private DataInputStream in;
     private DataOutputStream out;
     private String nickname;
+    private String login;
+
+    private final int TIMEOUT = 120_000;
 
     public ClientHandler(Server server, Socket socket) {
         try {
@@ -23,6 +27,7 @@ public class ClientHandler {
 
             new Thread(() -> {
                 try {
+                    socket.setSoTimeout(TIMEOUT);
                     //цикл аутентификации
                     while (true) {
                         String str = in.readUTF();
@@ -31,12 +36,17 @@ public class ClientHandler {
                             String[] token = str.split("\\s");
                             String newNick = server.getAuthService()
                                     .getNicknameByLoginAndPassword(token[1], token[2]);
+                            login = token[1];
                             if (newNick != null) {
-                                nickname = newNick;
-                                sendMsg(Command.AUTH_OK + " " + nickname);
-                                server.subscribe(this);
-                                System.out.println("client " + nickname + " connected " + socket.getRemoteSocketAddress());
-                                break;
+                                if (!server.isLoginAuthenticated(login)) {
+                                    nickname = newNick;
+                                    sendMsg(Command.AUTH_OK + " " + nickname);
+                                    server.subscribe(this);
+                                    System.out.println("client " + nickname + " connected " + socket.getRemoteSocketAddress());
+                                    break;
+                                } else {
+                                    sendMsg("С этим логином уже авторизовались");
+                                }
                             } else {
                                 sendMsg("Неверный логин / пароль");
                             }
@@ -44,32 +54,50 @@ public class ClientHandler {
 
                         if (str.equals(Command.END)) {
                             sendMsg(Command.END);
-                            System.out.println("client disconnected");
-                            break;
+                            throw new RuntimeException("client disconnected");
+                        }
+
+                        if (str.startsWith(Command.REG)) {
+                            String[] token = str.split("\\s");
+                            if (token.length < 4) {
+                                continue;
+                            }
+                            boolean isRegistered = server.getAuthService().registration(token[1], token[2], token[3]);
+                            if (isRegistered) {
+                                sendMsg(Command.REG_OK);
+                            } else {
+                                sendMsg(Command.REG_NO);
+                            }
                         }
                     }
 
+                    socket.setSoTimeout(0);
                     //цикл работы
                     while (true) {
                         String str = in.readUTF();
 
                         if (str.startsWith("/")) {
-                            if (str.startsWith(Command.WHISPER)) {
-                                String[] token = str.split("\\s", 3);
-                                String receiver = token[1];
-                                String msg = token[2];
-                                server.whisperMsg(this, msg, receiver);
-                            }
-
                             if (str.equals(Command.END)) {
                                 sendMsg(Command.END);
                                 System.out.println("client disconnected");
                                 break;
                             }
+                            if (str.startsWith(Command.PRV_MSG)) {
+                                String[] token = str.split("\\s", 3);
+                                if (token.length < 3) {
+                                    continue;
+                                }
+                                server.privateMsg(this, token[1], token[2]);
+                            }
+
                         } else {
                             server.broadcastMsg(this, str);
                         }
                     }
+                } catch (SocketException e) {
+                    sendMsg(Command.END);
+                } catch (RuntimeException e) {
+                    System.out.println(e.getMessage());
                 } catch (IOException e) {
                     e.printStackTrace();
                 } finally {
@@ -96,5 +124,9 @@ public class ClientHandler {
 
     public String getNickname() {
         return nickname;
+    }
+
+    public String getLogin() {
+        return login;
     }
 }
