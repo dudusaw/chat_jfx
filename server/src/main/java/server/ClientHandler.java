@@ -27,73 +27,8 @@ public class ClientHandler {
 
             new Thread(() -> {
                 try {
-                    socket.setSoTimeout(TIMEOUT);
-                    //цикл аутентификации
-                    while (true) {
-                        String str = in.readUTF();
-
-                        if (str.startsWith(Command.AUTH)) {
-                            String[] token = str.split("\\s");
-                            String newNick = server.getAuthService()
-                                    .getNicknameByLoginAndPassword(token[1], token[2]);
-                            login = token[1];
-                            if (newNick != null) {
-                                if (!server.isLoginAuthenticated(login)) {
-                                    nickname = newNick;
-                                    sendMsg(Command.AUTH_OK + " " + nickname);
-                                    server.subscribe(this);
-                                    System.out.println("client " + nickname + " connected " + socket.getRemoteSocketAddress());
-                                    break;
-                                } else {
-                                    sendMsg("С этим логином уже авторизовались");
-                                }
-                            } else {
-                                sendMsg("Неверный логин / пароль");
-                            }
-                        }
-
-                        if (str.equals(Command.END)) {
-                            sendMsg(Command.END);
-                            throw new RuntimeException("client disconnected");
-                        }
-
-                        if (str.startsWith(Command.REG)) {
-                            String[] token = str.split("\\s");
-                            if (token.length < 4) {
-                                continue;
-                            }
-                            boolean isRegistered = server.getAuthService().registration(token[1], token[2], token[3]);
-                            if (isRegistered) {
-                                sendMsg(Command.REG_OK);
-                            } else {
-                                sendMsg(Command.REG_NO);
-                            }
-                        }
-                    }
-
-                    socket.setSoTimeout(0);
-                    //цикл работы
-                    while (true) {
-                        String str = in.readUTF();
-
-                        if (str.startsWith("/")) {
-                            if (str.equals(Command.END)) {
-                                sendMsg(Command.END);
-                                System.out.println("client disconnected");
-                                break;
-                            }
-                            if (str.startsWith(Command.PRV_MSG)) {
-                                String[] token = str.split("\\s", 3);
-                                if (token.length < 3) {
-                                    continue;
-                                }
-                                server.privateMsg(this, token[1], token[2]);
-                            }
-
-                        } else {
-                            server.broadcastMsg(this, str);
-                        }
-                    }
+                    authLoop();
+                    workLoop();
                 } catch (SocketException e) {
                     sendMsg(Command.END);
                 } catch (RuntimeException e) {
@@ -111,6 +46,89 @@ public class ClientHandler {
             }).start();
         } catch (IOException e) {
             e.printStackTrace();
+        }
+    }
+
+    private void workLoop() throws IOException {
+        socket.setSoTimeout(0);
+        //цикл работы
+        while (true) {
+            String str = in.readUTF();
+
+            if (str.startsWith("/")) {
+                if (str.equals(Command.END)) {
+                    sendMsg(Command.END);
+                    System.out.println("client disconnected");
+                    break;
+                } else if (str.startsWith(Command.PRV_MSG)) {
+                    int limit = 3;
+                    String[] token = str.split("\\s", limit);
+                    if (token.length > limit) {
+                        server.privateMsg(this, token[1], token[2]);
+                    }
+                } else if (str.startsWith(Command.NICK_CHANGE)) {
+                    // template /cnick [password] [newNickname]
+                    int limit = 3;
+                    String[] token = str.split("\\s", limit);
+                    if (token.length >= limit) {
+                        String pass = token[1];
+                        String newNick = token[2];
+                        if (server.getAuthService().changeNickname(login, pass, newNick)) {
+                            nickname = newNick;
+                            server.broadcastClientList();
+                        }
+                    }
+                }
+
+            } else {
+                server.broadcastMsg(this, str);
+            }
+        }
+    }
+
+    private void authLoop() throws IOException {
+        socket.setSoTimeout(TIMEOUT);
+        //цикл аутентификации
+        while (true) {
+            String str = in.readUTF();
+
+            if (str.startsWith(Command.AUTH)) {
+                String[] token = str.split("\\s");
+                String newNick = server.getAuthService()
+                        .getNicknameByLoginAndPassword(token[1], token[2]);
+                login = token[1];
+                if (newNick != null) {
+                    if (!server.isLoginAuthenticated(login)) {
+                        nickname = newNick;
+                        sendMsg(Command.AUTH_OK + " " + nickname);
+                        server.subscribe(this);
+                        System.out.println("client " + nickname + " connected " + socket.getRemoteSocketAddress());
+                        break;
+                    } else {
+                        sendMsg("С этим логином уже авторизовались");
+                    }
+                } else {
+                    sendMsg("Неверный логин / пароль");
+                }
+            }
+
+            if (str.equals(Command.END)) {
+                sendMsg(Command.END);
+                throw new RuntimeException("client disconnected");
+            }
+
+            if (str.startsWith(Command.REG)) {
+                String[] token = str.split("\\s");
+                if (token.length < 4) {
+                    continue;
+                }
+                boolean isRegistered = server.getAuthService().registration(token[1], token[2], token[3]);
+                if (isRegistered) {
+                    sendMsg(Command.REG_OK);
+                } else {
+                    sendMsg(Command.REG_NO);
+                }
+            }
         }
     }
 

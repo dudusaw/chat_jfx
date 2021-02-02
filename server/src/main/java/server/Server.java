@@ -1,6 +1,9 @@
 package server;
 
 import commands.Command;
+import server.db.DBAuth;
+import server.db.DBConnection;
+import server.db.HistorySaver;
 
 import java.io.IOException;
 import java.net.ServerSocket;
@@ -14,10 +17,14 @@ public class Server {
     private final int PORT = 8189;
     private List<ClientHandler> clients;
     private AuthService authService;
+    private HistorySaver historySaver;
+    private DBConnection connection;
 
     public Server() {
         clients = new CopyOnWriteArrayList<>();
-        authService = new SimpleAuthService();
+        connection = new DBConnection();
+        authService = new DBAuth(connection);
+        historySaver = new HistorySaver(connection);
 
         try {
             server = new ServerSocket(PORT);
@@ -34,6 +41,7 @@ public class Server {
         } finally {
             try {
                 server.close();
+                connection.close();
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -45,6 +53,7 @@ public class Server {
         for (ClientHandler c : clients) {
             c.sendMsg(message);
         }
+        historySaver.saveMessage(clientHandler.getNickname(), msg);
     }
 
     public void privateMsg(ClientHandler sender, String receiver, String msg) {
