@@ -20,12 +20,10 @@ import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import javafx.stage.WindowEvent;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
+import java.io.*;
 import java.net.Socket;
 import java.net.URL;
-import java.util.ResourceBundle;
+import java.util.*;
 
 public class Controller implements Initializable {
     @FXML
@@ -51,6 +49,7 @@ public class Controller implements Initializable {
 
     private boolean authenticated;
     private String nickname;
+    private String login;
 
     private Stage stage;
     private Stage regStage;
@@ -126,6 +125,24 @@ public class Controller implements Initializable {
                         }
                     }
 
+                    String filename = String.format("history/history_%s.txt", login);
+                    PrintWriter historyOut = new PrintWriter(new FileOutputStream(filename, true));
+                    BufferedReader historyIn = new BufferedReader(new FileReader(filename));
+
+                    ArrayList<String> historyList = new ArrayList<>();
+
+
+                    while (historyIn.ready()) {
+                        historyList.add(historyIn.readLine());
+                    }
+
+                    int lineCount = 5;
+                    for (int i = historyList.size() - lineCount; i < historyList.size(); i++) {
+                        appendMessageToTextField(historyList.get(i));
+                    }
+
+                    historyList = null;
+
                     //цикл работы
                     while (true) {
                         String str = in.readUTF();
@@ -146,9 +163,14 @@ public class Controller implements Initializable {
                             }
 
                         } else {
-                            textArea.appendText(str + "\n");
+                            appendMessageToTextField(str);
+                            historyOut.println(str);
+                            historyOut.flush();
                         }
                     }
+
+                    historyIn.close();
+                    historyOut.close();
                 } catch (RuntimeException e) {
                     System.out.println(e.getMessage());
                 } catch (IOException e) {
@@ -168,6 +190,10 @@ public class Controller implements Initializable {
         }
     }
 
+    private void appendMessageToTextField(String str) {
+        textArea.appendText(str + "\n");
+    }
+
     @FXML
     public void sendMsg(ActionEvent actionEvent) {
         try {
@@ -184,6 +210,7 @@ public class Controller implements Initializable {
             connect();
         }
 
+        this.login = loginField.getText().trim();
         String msg = String.format("%s %s %s", Command.AUTH, loginField.getText().trim(), passwordField.getText().trim());
 
         try {
